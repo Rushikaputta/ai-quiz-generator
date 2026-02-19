@@ -113,3 +113,6 @@ npm run dev
 
 Open http://localhost:3000 in your browser
 
+live link:-
+https://ai-quiz-generator-2wjiu7llh-rushikaputtas-projects.vercel.app
+
