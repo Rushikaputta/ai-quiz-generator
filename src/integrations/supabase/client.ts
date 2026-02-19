@@ -4,14 +4,199 @@ import type { Database } from './types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const USE_MOCK_AUTH = import.meta.env.VITE_USE_MOCK_AUTH === 'true';
 
-// Import the supabase client like this:
-// import { supabase } from "@/integrations/supabase/client";
+const createMockClient = () => {
+  console.warn("⚠️ Using Mock Supabase Client for Authentication");
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    storage: localStorage,
-    persistSession: true,
-    autoRefreshToken: true,
-  }
-});
+  const mockUser = {
+    id: "mock-user-id",
+    aud: "authenticated",
+    role: "authenticated",
+    email: "test@example.com",
+    email_confirmed_at: new Date().toISOString(),
+    phone: "",
+    confirmed_at: new Date().toISOString(),
+    last_sign_in_at: new Date().toISOString(),
+    app_metadata: { provider: "email", providers: ["email"] },
+    user_metadata: {},
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const mockSession = {
+    access_token: "mock-access-token",
+    refresh_token: "mock-refresh-token",
+    expires_in: 3600,
+    token_type: "bearer",
+    user: mockUser,
+  };
+
+  const listeners: ((event: string, session: any) => void)[] = [];
+
+  // State for mock session
+  let currentSession = null as any;
+
+  const notifyListeners = (event: string, session: any) => {
+    console.log(`Mock Client: Notifying ${listeners.length} listeners of event ${event}`);
+    listeners.forEach(callback => callback(event, session));
+  };
+
+  // Helper to get local storage data
+  const getDb = (table: string) => {
+    try {
+      return JSON.parse(localStorage.getItem(table) || "[]");
+    } catch {
+      return [];
+    }
+  };
+
+  // Helper to save to local storage
+  const saveDb = (table: string, data: any) => {
+    localStorage.setItem(table, JSON.stringify(data));
+  };
+
+  return {
+    auth: {
+      signUp: async ({ email, password }: any) => {
+        console.log("Mock SignUp:", email);
+        currentSession = mockSession; // Set session
+        notifyListeners("SIGNED_IN", currentSession);
+        return { data: { user: mockUser, session: currentSession }, error: null };
+      },
+      signInWithPassword: async ({ email, password }: any) => {
+        console.log("Mock SignIn:", email);
+        currentSession = mockSession; // Set session
+        notifyListeners("SIGNED_IN", currentSession);
+        return { data: { user: mockUser, session: currentSession }, error: null };
+      },
+      signOut: async () => {
+        console.log("Mock SignOut");
+        currentSession = null; // Clear session
+        notifyListeners("SIGNED_OUT", null);
+        return { error: null };
+      },
+      getSession: async () => {
+        console.log("Mock getSession called, returning:", currentSession ? "Active Session" : "Null");
+        return { data: { session: currentSession }, error: null };
+      },
+      getUser: async () => {
+        return { data: { user: currentSession?.user || null }, error: null };
+      },
+      onAuthStateChange: (callback: (event: string, session: any) => void) => {
+        listeners.push(callback);
+        return {
+          data: {
+            subscription: {
+              unsubscribe: () => {
+                const index = listeners.indexOf(callback);
+                if (index > -1) listeners.splice(index, 1);
+              }
+            }
+          }
+        };
+      },
+    },
+    from: (table: string) => ({
+      select: (columns = "*") => ({
+        eq: (column: string, value: any) => ({
+          single: async () => {
+            const rows = getDb(table);
+            const row = rows.find((r: any) => r[column] === value);
+            return { data: row || null, error: row ? null : { message: "Not found", code: "404" } };
+          },
+          maybeSingle: async () => {
+            const rows = getDb(table);
+            const row = rows.find((r: any) => r[column] === value);
+            return { data: row || null, error: null };
+          },
+        }),
+        order: (column: string, { ascending = true } = {}) => ({
+          limit: (count: number) => {
+            const rows = getDb(table);
+            // Simple sort implementation
+            rows.sort((a: any, b: any) => {
+              return ascending ? (a[column] > b[column] ? 1 : -1) : (a[column] < b[column] ? 1 : -1);
+            });
+            return { data: rows.slice(0, count), error: null };
+          }
+        })
+      }),
+      insert: (record: any) => ({
+        select: () => ({
+          single: async () => {
+            console.log(`Mock DB Insert into ${table}:`, record);
+            const rows = getDb(table);
+            const newRow = { ...record, id: crypto.randomUUID(), created_at: new Date().toISOString() };
+            rows.push(newRow);
+            saveDb(table, rows);
+            return { data: newRow, error: null };
+          }
+        })
+      }),
+      delete: () => ({
+        eq: (column: string, value: any) => ({
+          then: (cb: any) => {
+            const rows = getDb(table);
+            const newRows = rows.filter((r: any) => r[column] !== value);
+            saveDb(table, newRows);
+            cb({ error: null });
+          }
+        })
+      })
+    }),
+    functions: {
+      invoke: async (functionName: string, { body }: any) => {
+        console.log(`Mock Function Invoke: ${functionName}`, body);
+        if (functionName === 'generate-quiz') {
+          // Dynamically import the AI service to avoid circular dependencies or load issues
+          const { generateQuiz } = await import('../../services/ai');
+          try {
+            console.log("Calling Real AI Service...");
+            const result = await generateQuiz(body.topic, body.difficulty, body.questionCount);
+            console.log("AI Service Result:", result);
+
+            if (result.error) {
+              return { data: null, error: { message: result.error } };
+            }
+
+            if (result.data) {
+              // Determine Quiz ID
+              const quizId = result.data.quiz.id || crypto.randomUUID();
+              result.data.quiz.id = quizId;
+
+              // Save Quiz to Mock DB
+              const quizzes = getDb('quizzes');
+              quizzes.push({
+                id: quizId,
+                title: result.data.quiz.title,
+                topic: body.topic,
+                difficulty: body.difficulty,
+                questions: result.data.questions,
+                created_at: new Date().toISOString()
+              });
+              saveDb('quizzes', quizzes);
+              console.log("Saved quiz to localStorage 'quizzes'");
+            }
+
+            return { data: result.data, error: null };
+          } catch (error: any) {
+            console.error("AI Service Failed:", error);
+            return { data: null, error: error.message };
+          }
+        }
+        return { data: null, error: null };
+      }
+    }
+  } as any;
+};
+
+export const supabase = (USE_MOCK_AUTH || !SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)
+  ? createMockClient()
+  : createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    auth: {
+      storage: localStorage,
+      persistSession: true,
+      autoRefreshToken: true,
+    }
+  });

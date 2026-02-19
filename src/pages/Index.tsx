@@ -74,7 +74,7 @@ const Index = () => {
       if (error.message?.includes("429")) {
         toast.error("Rate limit exceeded. Please try again later.");
       } else {
-        toast.error("Failed to generate quiz. Please try again.");
+        toast.error(error.message || "Failed to generate quiz. Please try again.");
       }
     } finally {
       setIsGenerating(false);

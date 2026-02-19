@@ -71,8 +71,13 @@ const Auth = () => {
       } else {
         toast.success("Account created! You can now sign in.");
       }
-    } catch (error) {
-      toast.error("An unexpected error occurred");
+    } catch (error: any) {
+      console.error("Signup error:", error);
+      if (error.message && (error.message.includes("Failed to fetch") || error.message.includes("NetworkError"))) {
+        toast.error("Connection failed. Please check your Supabase URL in .env");
+      } else {
+        toast.error("An unexpected error occurred. Check the console for details.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -80,20 +85,36 @@ const Auth = () => {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateInputs()) return;
+    console.log("Handle Sign In Clicked"); // Debug log
+
+    if (!validateInputs()) {
+      console.log("Input validation failed");
+      return;
+    }
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      console.log("Calling supabase.auth.signInWithPassword"); // Debug log
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
+      console.log("Sign In Result:", { data, error }); // Debug log
 
       if (error) {
         toast.error(error.message);
+      } else {
+        console.log("Sign in successful, expecting navigation...");
+        toast.success("Successfully signed in (Mock Mode)");
+        navigate("/");
       }
-    } catch (error) {
-      toast.error("An unexpected error occurred");
+    } catch (error: any) {
+      console.error("Signin error:", error);
+      if (error.message && (error.message.includes("Failed to fetch") || error.message.includes("NetworkError"))) {
+        toast.error("Connection failed. Please check your Supabase URL in .env");
+      } else {
+        toast.error("An unexpected error occurred. Check the console for details.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -103,7 +124,7 @@ const Auth = () => {
     <div className="min-h-screen flex items-center justify-center px-4 py-12 relative overflow-hidden">
       <div className="absolute inset-0 bg-gradient-hero opacity-10" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(163,109,255,0.1),transparent_50%)]" />
-      
+
       <div className="max-w-md w-full relative z-10">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-primary mb-4">
