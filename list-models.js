@@ -1,7 +1,10 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const API_KEY = "AIzaSyCMXPRE03WqQeE-oCvt4tNHONHWBXM0fNk";
+
+import dotenv from "dotenv";
+dotenv.config();
+const API_KEY = process.env.VITE_GEMINI_API_KEY;
 
 async function listModels() {
     if (!API_KEY) {
